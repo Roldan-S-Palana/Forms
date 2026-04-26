@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Overnight Report Generator</title>
+<style>
+body {
+    font-family: Arial;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 20px;
+}
+
+h1 {
+    color: #38bdf8;
+}
+
+.container {
+    max-width: 900px;
+    margin: auto;
+}
+
+.card {
+    background: #1e293b;
+    padding: 15px;
+    margin-bottom: 15px;
+    border-radius: 10px;
+}
+
+input, textarea {
+    width: 100%;
+    padding: 8px;
+    margin-top: 5px;
+    margin-bottom: 10px;
+    border-radius: 6px;
+    border: none;
+}
+
+button {
+    padding: 10px 15px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-right: 5px;
+}
+
+.add-btn { background: #22c55e; }
+.generate-btn { background: #3b82f6; }
+.save-btn { background: #eab308; }
+.load-btn { background: #a855f7; }
+
+.output {
+    white-space: pre-wrap;
+    background: #020617;
+    padding: 15px;
+    border-radius: 10px;
+    margin-top: 20px;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1>🚚 Overnight Report Generator</h1>
+
+<label>Date Range</label>
+<input id="dateRange" placeholder="4/25 - 4/26 2026">
+
+<div id="loads"></div>
+
+<button class="add-btn" onclick="addLoad()">+ Add Load</button>
+<button class="generate-btn" onclick="generate()">Generate</button>
+<button class="save-btn" onclick="saveJSON()">Save JSON</button>
+<button class="load-btn" onclick="loadJSON()">Load JSON</button>
+
+<div class="output" id="output"></div>
+</div>
+
+<script>
+
+let loads = [];
+
+function addLoad(data = {}) {
+    const id = Date.now();
+    loads.push({ id });
+
+    const div = document.createElement("div");
+    div.className = "card";
+    div.id = id;
+
+    div.innerHTML = `
+        <input placeholder="Load # (e.g. 2000780 IL-NV)" value="${data.load || ''}">
+        <input placeholder="Carrier" value="${data.carrier || ''}">
+        <input placeholder="Customer" value="${data.customer || ''}">
+        <input placeholder="Pickup" value="${data.pickup || ''}">
+        <input placeholder="Delivery" value="${data.delivery || ''}">
+        <input placeholder="Status" value="${data.status || ''}">
+        <input placeholder="Miles + ETA" value="${data.eta || ''}">
+        <button onclick="removeLoad(${id})">❌ Remove</button>
+    `;
+
+    document.getElementById("loads").appendChild(div);
+}
+
+function removeLoad(id) {
+    document.getElementById(id).remove();
+    loads = loads.filter(l => l.id !== id);
+}
+
+function generate() {
+    let output = `Good morning,
+
+Overnight report:
+
+${document.getElementById("dateRange").value}
+
+\n*OUTSOURCED CARRIER*\n\n`;
+
+    document.querySelectorAll(".card").forEach(card => {
+        const inputs = card.querySelectorAll("input");
+
+        output += `*#${inputs[0].value}*\n`;
+        output += `*• Carrier: ${inputs[1].value}*\n`;
+        output += `*• Customer: ${inputs[2].value}*\n`;
+        output += `• ${inputs[3].value}\n`;
+        output += `• ${inputs[4].value}\n`;
+        output += `• Status: ${inputs[5].value}\n`;
+        output += `• ${inputs[6].value}\n\n________\n\n`;
+    });
+
+    document.getElementById("output").innerText = output;
+}
+
+function saveJSON() {
+    const data = [];
+
+    document.querySelectorAll(".card").forEach(card => {
+        const inputs = card.querySelectorAll("input");
+
+        data.push({
+            load: inputs[0].value,
+            carrier: inputs[1].value,
+            customer: inputs[2].value,
+            pickup: inputs[3].value,
+            delivery: inputs[4].value,
+            status: inputs[5].value,
+            eta: inputs[6].value
+        });
+    });
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "report.json";
+    a.click();
+}
+
+function loadJSON() {
+    const input = document.createElement("input");
+    input.type = "file";
+
+    input.onchange = e => {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+
+        reader.onload = () => {
+            const data = JSON.parse(reader.result);
+            document.getElementById("loads").innerHTML = "";
+            loads = [];
+
+            data.forEach(d => addLoad(d));
+        };
+
+        reader.readAsText(file);
+    };
+
+    input.click();
+}
+
+</script>
+
+</body>
+</html>

@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Overnight Report Generator</title>
+<style>
+body {
+    font-family: Arial, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    margin: 0;
+}
+
+.container {
+    padding: 12px;
+}
+
+h1 {
+    font-size: 18px;
+    text-align: center;
+    color: #38bdf8;
+}
+
+input, select, textarea {
+    width: 100%;
+    padding: 12px;
+    margin: 6px 0;
+    border-radius: 10px;
+    border: none;
+    font-size: 14px;
+}
+
+.card {
+    background: #1e293b;
+    padding: 12px;
+    border-radius: 12px;
+    margin-bottom: 12px;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    margin-bottom: 8px;
+}
+
+.toggle-btn {
+    background: none;
+    color: #38bdf8;
+    border: none;
+    font-size: 16px;
+}
+
+.hidden {
+    display: none;
+}
+
+button {
+    padding: 12px;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    margin-top: 6px;
+    width: 100%;
+}
+
+.row-buttons {
+    display: flex;
+    gap: 6px;
+}
+
+.row-buttons button {
+    flex: 1;
+    font-size: 12px;
+    padding: 10px;
+}
+
+.add-btn { background: #22c55e; }
+.generate-btn { background: #3b82f6; }
+.template-btn { background: #334155; }
+
+.output {
+    white-space: pre-wrap;
+    background: #020617;
+    padding: 12px;
+    border-radius: 10px;
+    margin-top: 15px;
+    font-size: 12px;
+}
+
+/* Sticky bottom bar */
+.bottom-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #020617;
+    padding: 10px;
+    display: flex;
+    gap: 10px;
+}
+
+.bottom-bar button {
+    flex: 1;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1>🚚 Overnight Report Generator</h1>
+
+<label>Date Range</label>
+<input id="dateRange" placeholder="4/25 - 4/26 2026">
+
+<label for="speed">Average Speed (mph)</label>
+<input id="speed" type="number" value="60">
+<div id="loads"></div>
+
+
+<button class="add-btn" onclick="addLoad()">+ Add Load</button>
+<button class="generate-btn" onclick="generate()">Generate</button>
+<button class="save-btn" onclick="saveJSON()">Save JSON</button>
+<button class="load-btn" onclick="loadJSON()">Load JSON</button>
+<button onclick="addTemplate('outsourced')">+ Outsourced Template</button>
+<button onclick="addTemplate('own')">+ Own Asset Template</button>
+<button onclick="addTemplate('pickup')">+ Pickup Template</button>
+<button onclick="clearData()">🗑 Reset</button>
+
+    <div class="output" id="output">
+        <button onclick="copyOutput()">📋 Copy</button>
+    </div>
+</div>
+
+<script>
+
+const STORAGE_KEY = "overnight_report_data_v1";
+
+
+const templates = {
+    outsourced: {
+        section: "outsourced",
+        load: "",
+        carrier: "",
+        customer: "",
+        pickup: "Loaded in , ",
+        delivery: "Delivery in  (today at 8AM)",
+        status: "On a break in ",
+        miles: ""
+    },
+
+    own: {
+        section: "own",
+        load: "",
+        carrier: "",
+        customer: "",
+        pickup: "PU in ",
+        delivery: "Delivery in  ",
+        status: "On a break in ",
+        miles: ""
+    },
+
+    pickup: {
+        section: "pickup",
+        load: "",
+        carrier: "",
+        customer: "",
+        pickup: "Pickup in  (today at )",
+        delivery: "Delivery @ ",
+        status: "Arrived at the pickup",
+        miles: ""
+    }
+};
+
+function addTemplate(type) {
+    const data = templates[type];
+    addLoad(data);
+
+    const lastCard = document.querySelector("#loads").lastChild;
+    lastCard.querySelector(".section").value = data.section;
+
+    // Auto trigger ETA if miles exists
+    const milesInput = lastCard.querySelector(".miles");
+    if (data.miles) {
+        updateETA(milesInput);
+    }
+}
+
+let loads = [];
+
+function addLoad(data = {}) {
+    const id = Date.now();
+    loads.push({ id });
+
+    const div = document.createElement("div");
+    div.className = "card";
+    div.id = id;
+
+    div.innerHTML = `
+
+        <div class="card-header">
+            <span>Load</span>
+            <button class="toggle-btn" onclick="toggleCard(this)">⬇</button>
+        </div>
+
+        <div class="card-body">
+        <select class="section">
+            <option value="outsourced">OUTSOURCED</option>
+            <option value="own">OWN</option>
+            <option value="pickup">PICKUP</option>
+        </select>
+
+        <input placeholder="Load #" value="${data.load || ''}">
+        <input placeholder="Carrier" value="${data.carrier || ''}">
+        <input placeholder="Customer" value="${data.customer || ''}">
+        <input placeholder="Pickup" value="${data.pickup || ''}">
+        <input placeholder="Delivery" value="${data.delivery || ''}">
+
+        <input placeholder="Status" value="${data.status || ''}" class="status">
+
+        <div class="row-buttons">
+            <button onclick="setStatus(this, 'On a break')">Break</button>
+            <button onclick="setStatus(this, 'Rolling')">Rolling</button>
+            <button onclick="setStatus(this, 'Staged')">Staged</button>
+        </div>
+
+        <input placeholder="Miles" class="miles" value="${data.miles || ''}" oninput="updateETA(this)">
+        <input placeholder="ETA" class="eta" readonly>
+
+        <button onclick="removeLoad(${id})">❌ Remove</button>
+        </div>
+    `;
+
+    document.getElementById("loads").appendChild(div);
+}
+
+function computeETA(miles) {
+    const speed = parseFloat(document.getElementById("speed").value) || 60;
+
+    const hours = miles / speed;
+    const h = Math.floor(hours);
+    const m = Math.round((hours - h) * 60);
+
+    return `${h}hrs and ${m}mins away`;
+}
+function updateETA(input) {
+    const miles = parseFloat(input.value);
+    const card = input.parentElement;
+    const etaField = card.querySelector(".eta");
+
+    if (!isNaN(miles)) {
+        etaField.value = computeETA(miles);
+    } else {
+        etaField.value = "";
+    }
+}
+
+function removeLoad(id) {
+    document.getElementById(id).remove();
+    loads = loads.filter(l => l.id !== id);
+}
+
+function generate() {
+    let outsourced = "";
+    let own = "";
+    let pickup = "";
+
+    document.querySelectorAll(".card").forEach(card => {
+        const inputs = card.querySelectorAll("input");
+        const section = card.querySelector(".section").value;
+
+        const block = `*#${inputs[0].value}*
+*• Carrier: ${inputs[1].value}*
+*• Customer: ${inputs[2].value}*
+• ${inputs[3].value}
+• ${inputs[4].value}
+• Status: ${inputs[5].value}
+• ${inputs[6].value} miles out | approx. ${inputs[7].value}
+
+________
+
+`;
+
+        if (section === "outsourced") outsourced += block;
+        if (section === "own") own += block;
+        if (section === "pickup") pickup += block;
+    });
+
+    let output = `Good morning,
+
+Overnight report:
+
+${document.getElementById("dateRange").value}
+
+
+`;
+
+    if (outsourced) {
+        output += `*OUTSOURCED CARRIER*\n\n${outsourced}`;
+    }
+
+    if (own) {
+        output += `\n******\n\n*OWN ASSETS*\n\n${own}`;
+    }
+
+    if (pickup) {
+        output += `\n******\n\n*FOR PICKUP*\n\n${pickup}`;
+    }
+
+    output += `\n\nClock out -`;
+
+    document.getElementById("output").innerText = output;
+}
+
+function saveJSON() {
+    const data = [];
+
+    document.querySelectorAll(".card").forEach(card => {
+        const inputs = card.querySelectorAll("input");
+
+        data.push({
+            section: card.querySelector(".section").value,
+            load: inputs[0].value,
+            carrier: inputs[1].value,
+            customer: inputs[2].value,
+            pickup: inputs[3].value,
+            delivery: inputs[4].value,
+            status: inputs[5].value,
+            miles: inputs[6].value
+        });
+    });
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "report.json";
+    a.click();
+}
+
+function loadJSON() {
+    const input = document.createElement("input");
+    input.type = "file";
+
+    input.onchange = e => {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+
+        reader.onload = () => {
+            const data = JSON.parse(reader.result);
+            document.getElementById("loads").innerHTML = "";
+            loads = [];
+
+             data.forEach(d => {
+                addLoad(d);
+
+                const lastCard = document.querySelector("#loads").lastChild;
+                lastCard.querySelector(".section").value = d.section;
+            });
+        };
+
+        reader.readAsText(file);
+    };
+    
+
+    input.click();
+
+
+}
+
+function toggleCard(btn) {
+    const body = btn.parentElement.nextElementSibling;
+    body.classList.toggle("hidden");
+}
+
+function setStatus(btn, text) {
+    const card = btn.closest(".card");
+    card.querySelector(".status").value = text;
+}
+
+function copyOutput() {
+    const text = document.getElementById("output").innerText;
+    navigator.clipboard.writeText(text);
+    alert("Copied!");
+}
+
+function saveToLocal() {
+    const data = {
+        dateRange: document.getElementById("dateRange").value,
+        speed: document.getElementById("speed")?.value || 60,
+        loads: []
+    };
+
+    document.querySelectorAll(".card").forEach(card => {
+        const inputs = card.querySelectorAll("input");
+
+        data.loads.push({
+            section: card.querySelector(".section").value,
+            load: inputs[0].value,
+            carrier: inputs[1].value,
+            customer: inputs[2].value,
+            pickup: inputs[3].value,
+            delivery: inputs[4].value,
+            status: inputs[5].value,
+            miles: inputs[6].value
+        });
+    });
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function loadFromLocal() {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return;
+
+    const data = JSON.parse(saved);
+
+    document.getElementById("dateRange").value = data.dateRange || "";
+    if (document.getElementById("speed")) {
+        document.getElementById("speed").value = data.speed || 60;
+    }
+
+    document.getElementById("loads").innerHTML = "";
+    loads = [];
+
+    data.loads.forEach(d => {
+        addLoad(d);
+
+        const lastCard = document.querySelector("#loads").lastChild;
+        lastCard.querySelector(".section").value = d.section;
+
+        const milesInput = lastCard.querySelector(".miles");
+        if (d.miles) updateETA(milesInput);
+    });
+}
+
+function clearData() {
+    if (confirm("Clear all saved data?")) {
+        localStorage.removeItem(STORAGE_KEY);
+        location.reload();
+    }
+}
+
+function sendEmail() {
+    const output = document.getElementById("output").innerText;
+
+    if (!output.trim()) {
+        alert("Generate report first!");
+        return;
+    }
+
+    const dateRange = document.getElementById("dateRange").value;
+    const subject = encodeURIComponent(`Overnight Report (${dateRange})`);
+    //const subject = encodeURIComponent("Overnight Report");
+    const body = encodeURIComponent(output);
+
+    const recipient = "dispatcher@company.com";//<-- Change to actual email
+    
+    if (body.length > 1800) {
+        copyOutput();
+        alert("Report too long — copied instead. Paste it into email.");
+        return;
+    }
+    
+    const mailto = `mailto:${recipient}?subject=${subject}&body=${body}`;
+    //const mailto = `mailto:?subject=${subject}&body=${body}`;
+
+    window.location.href = mailto;
+}
+
+
+document.addEventListener("input", () => {
+    saveToLocal();
+});
+
+
+
+window.onload = () => {
+    loadFromLocal();
+};
+
+</script>
+
+<div class="bottom-bar">
+    <button class="add-btn" onclick="addLoad()">+ Load</button>
+    <button class="generate-btn" onclick="generate()">Generate</button>
+    <button onclick="sendEmail()">📧 Email</button>
+</div>
+
+</body>
+</html>
